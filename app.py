@@ -63,7 +63,7 @@ def run_app():
 
         with tab2:
             st.subheader("Katalog Produk")
-            df = con.execute("SELECT * FROM product_catalog ORDER BY created_at DESC").df()
+            df = con.execute("SELECT * FROM product_catalog ORDER BY product_name ASC").df()
             if not df.empty:
                 st.dataframe(df, use_container_width=True)
             else:
