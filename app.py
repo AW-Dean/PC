@@ -1,3 +1,4 @@
+import streamlit as st
 import duckdb
 import random
 import string
@@ -10,111 +11,90 @@ def generate_product_id():
     random_str = ''.join(random.choice(chars) for _ in range(6))
     return f"PROD-{random_str}"
 
-def add_product(con):
-    print("\n--- Form Tambah Produk ---")
-    product_name = input("Masukkan Nama Product: ")
-    category = input("Masukkan Kategori: ")
-    
-    if not product_name or not category:
-        print("[Error] Nama produk dan kategori tidak boleh kosong.")
-        return
-
-    # Cek Duplikasi
-    existing = con.execute(
-        "SELECT product_id FROM product_catalog WHERE product_name = ? AND category = ?", 
-        [product_name, category]
-    ).fetchone()
-
-    if existing:
-        print(f"\n[WARNING] Produk dengan nama dan kategori yang sama sudah ada (ID: {existing[0]})")
-        confirm = input("Tetap simpan sebagai data baru? (y/n): ")
-        if confirm.lower() != 'y':
-            print("Penyimpanan dibatalkan.")
-            return
-
-    # Generate data otomatis
-    product_id = generate_product_id()
-    wib_tz = ZoneInfo("Asia/Jakarta")
-    created_at = datetime.now(wib_tz)
-    
-    con.execute("""
-        INSERT INTO product_catalog (product_id, product_name, category, created_at)
-        VALUES (?, ?, ?, ?)
-    """, [product_id, product_name, category, created_at])
-    
-    print(f"\n[Berhasil] Data ditambahkan! ID: {product_id}")
-
-def view_catalog(con):
-    print("\n--- Katalog Produk ---")
-    results = con.execute("SELECT * FROM product_catalog ORDER BY created_at DESC").fetchall()
-    if not results:
-        print("Katalog kosong.")
-        return
-    
-    print(f"{'ID':<15} | {'Nama Produk':<25} | {'Kategori':<15} | {'Dibuat Pada'}")
-    print("-" * 80)
-    for row in results:
-        print(f"{row[0]:<15} | {row[1]:<25} | {row[2]:<15} | {row[3]}")
-
-def edit_product(con):
-    print("\n--- Edit Produk ---")
-    p_id = input("Masukkan Product ID yang akan diedit: ").strip()
-    
-    # Cek apakah ID ada
-    target = con.execute("SELECT * FROM product_catalog WHERE product_id = ?", [p_id]).fetchone()
-    if not target:
-        print(f"[Error] Product ID {p_id} tidak ditemukan.")
-        return
-
-    print(f"Data saat ini: {target[1]} ({target[2]})")
-    new_name = input(f"Nama baru (kosongkan jika tetap '{target[1]}'): ") or target[1]
-    new_cat = input(f"Kategori baru (kosongkan jika tetap '{target[2]}'): ") or target[2]
-
-    con.execute("""
-        UPDATE product_catalog 
-        SET product_name = ?, category = ? 
-        WHERE product_id = ?
-    """, [new_name, new_cat, p_id])
-    
-    print(f"✅ Product {p_id} berhasil diperbarui.")
-
 def run_app():
+    st.set_page_config(page_title="AWE Product Management", layout="wide")
+    st.title("📦 AWE Product Management")
+
     try:
+        # Koneksi ke MotherDuck
         con = duckdb.connect('md:AWE_DB')
-        
         con.execute("""
             CREATE TABLE IF NOT EXISTS product_catalog (
                 product_id VARCHAR PRIMARY KEY,
                 product_name VARCHAR,
                 category VARCHAR,
-                created_at TIMESTAMP
+                created_at TIMESTAMPTZ
             )
         """)
-        
-        while True:
-            print("\n=== AWE Product Management ===")
-            print("1. Tambah Produk Baru")
-            print("2. Lihat Katalog")
-            print("3. Edit Produk")
-            print("4. Keluar")
-            
-            pilihan = input("Pilih menu (1-4): ")
-            
-            if pilihan == '1':
-                add_product(con)
-            elif pilihan == '2':
-                view_catalog(con)
-            elif pilihan == '3':
-                edit_product(con)
-            elif pilihan == '4':
-                print("Keluar dari aplikasi...")
-                break
-            else:
-                print("Pilihan tidak valid.")
 
-        con.close()
+        # Membuat Tab UI
+        tab1, tab2, tab3 = st.tabs(["➕ Tambah Produk", "📋 Lihat Katalog", "✏️ Edit Produk"])
+
+        with tab1:
+            st.subheader("Tambah Produk Baru")
+            with st.form("add_form", clear_on_submit=True):
+                p_name = st.text_input("Nama Product")
+                p_cat = st.text_input("Kategori")
+                submitted = st.form_submit_button("Simpan Data")
+
+                if submitted:
+                    if p_name and p_cat:
+                        # Cek Duplikasi
+                        existing = con.execute(
+                            "SELECT product_id FROM product_catalog WHERE product_name = ? AND category = ?", 
+                            [p_name, p_cat]
+                        ).fetchone()
+
+                        if existing:
+                            st.warning(f"Produk dengan nama dan kategori yang sama sudah ada (ID: {existing[0]})")
+                        
+                        # Tetap proses insert
+                        p_id = generate_product_id()
+                        wib_tz = ZoneInfo("Asia/Jakarta")
+                        created_at = datetime.now(wib_tz)
+                        
+                        con.execute("""
+                            INSERT INTO product_catalog (product_id, product_name, category, created_at)
+                            VALUES (?, ?, ?, ?)
+                        """, [p_id, p_name, p_cat, created_at])
+                        st.success(f"Berhasil! Data ditambahkan dengan ID: {p_id}")
+                    else:
+                        st.error("Nama dan Kategori wajib diisi!")
+
+        with tab2:
+            st.subheader("Katalog Produk")
+            df = con.execute("SELECT * FROM product_catalog ORDER BY created_at DESC").df()
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("Katalog masih kosong.")
+
+        with tab3:
+            st.subheader("Edit Produk")
+            catalog_ids = con.execute("SELECT product_id FROM product_catalog").fetchall()
+            id_list = [r[0] for r in catalog_ids]
+            
+            selected_id = st.selectbox("Pilih Product ID yang akan diedit", ["-- Pilih ID --"] + id_list)
+            
+            if selected_id != "-- Pilih ID --":
+                target = con.execute("SELECT * FROM product_catalog WHERE product_id = ?", [selected_id]).fetchone()
+                
+                with st.form("edit_form"):
+                    new_name = st.text_input("Nama Baru", value=target[1])
+                    new_cat = st.text_input("Kategori Baru", value=target[2])
+                    update_btn = st.form_submit_button("Update Data")
+                    
+                    if update_btn:
+                        con.execute("""
+                            UPDATE product_catalog 
+                            SET product_name = ?, category = ? 
+                            WHERE product_id = ?
+                        """, [new_name, new_cat, selected_id])
+                        st.success(f"Produk {selected_id} berhasil diperbarui!")
+                        st.rerun()
+
     except Exception as e:
-        print(f"\n[Error] Terjadi kesalahan: {e}")
+        st.error(f"Terjadi kesalahan: {e}")
 
 if __name__ == "__main__":
     run_app()
