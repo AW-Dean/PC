@@ -28,7 +28,7 @@ def run_app():
         """)
 
         # Membuat Tab UI
-        tab1, tab2, tab3 = st.tabs(["➕ Tambah Produk", "📋 Lihat Katalog", "✏️ Edit Produk"])
+        tab1, tab2, tab3, tab4 = st.tabs(["➕ Tambah Produk", "📋 Lihat Katalog", "✏️ Edit Produk", "🗑️ Hapus Produk"])
 
         with tab1:
             st.subheader("Tambah Produk Baru")
@@ -71,12 +71,14 @@ def run_app():
 
         with tab3:
             st.subheader("Edit Produk")
-            catalog_ids = con.execute("SELECT product_id FROM product_catalog").fetchall()
-            id_list = [r[0] for r in catalog_ids]
+            # Mengambil nama dan ID untuk selection yang lebih informatif
+            items = con.execute("SELECT product_id, product_name FROM product_catalog ORDER BY product_name ASC").fetchall()
+            product_options = {f"{r[1]} ({r[0]})": r[0] for r in items}
             
-            selected_id = st.selectbox("Pilih Product ID yang akan diedit", ["-- Pilih ID --"] + id_list)
+            selected_label = st.selectbox("Pilih Produk yang akan diedit", ["-- Pilih Produk --"] + list(product_options.keys()))
             
-            if selected_id != "-- Pilih ID --":
+            if selected_label != "-- Pilih Produk --":
+                selected_id = product_options[selected_label]
                 target = con.execute("SELECT * FROM product_catalog WHERE product_id = ?", [selected_id]).fetchone()
                 
                 with st.form("edit_form"):
@@ -92,6 +94,30 @@ def run_app():
                         """, [new_name, new_cat, selected_id])
                         st.success(f"Produk {selected_id} berhasil diperbarui!")
                         st.rerun()
+
+        with tab4:
+            st.subheader("Hapus Produk")
+            # Menggunakan logika selection yang sama dengan Tab Edit
+            items_del = con.execute("SELECT product_id, product_name FROM product_catalog ORDER BY product_name ASC").fetchall()
+            del_options = {f"{r[1]} ({r[0]})": r[0] for r in items_del}
+            
+            selected_del_label = st.selectbox("Pilih Produk yang akan dihapus", ["-- Pilih Produk --"] + list(del_options.keys()))
+            
+            if selected_del_label != "-- Pilih Produk --":
+                selected_del_id = del_options[selected_del_label]
+                
+                st.warning(f"⚠️ **Peringatan:** Anda akan menghapus produk **{selected_del_label}**. Tindakan ini tidak dapat dibatalkan.")
+                
+                # Checkbox konfirmasi sesuai permintaan
+                confirm_delete = st.checkbox("Saya benar-benar yakin ingin menghapus data ini secara permanen.")
+                
+                if st.button("Hapus Produk Sekarang", type="primary", disabled=not confirm_delete):
+                    try:
+                        con.execute("DELETE FROM product_catalog WHERE product_id = ?", [selected_del_id])
+                        st.success(f"Produk {selected_del_id} telah berhasil dihapus.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus data: {e}")
 
     except Exception as e:
         st.error(f"Terjadi kesalahan: {e}")
